@@ -1,5 +1,5 @@
+import logging
 from datetime import timedelta
-from pprint import pprint
 
 from environs import Env
 from mcstatus import MinecraftServer
@@ -17,6 +17,10 @@ class Main:
         self.MINECRAFT_SERVER_HOST = self.env('MINECRAFT_SERVER_HOST')
         self.MINECRAFT_SERVER_PORT = self.env('MINECRAFT_SERVER_PORT')
 
+        logging.basicConfig(
+            format='[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
+            level=logging.INFO)
+
         self.minutes_count = 0
 
         self.cluster = Cluster()
@@ -29,8 +33,8 @@ class Main:
         return self.get_server().status().players.online
 
     def run(self):
-        if not self.cluster.get_deployment_scale().spec.replicas:
-            # server has no replicas, nothing to do
+        if not self.cluster.get_deployment_status().status.ready_replicas:
+            # server has no replicas ready, nothing to do
             return
 
         players = self.get_server().status().players.online
@@ -41,10 +45,13 @@ class Main:
 
         self.minutes_count += 1
 
+        logging.info("minutes passed with no players: {}".format(
+            self.minutes_count))
+
         if (self.minutes_count >= self.MINUTES_WITH_NO_PLAYERS):
-            print('stopping server')
+            logging.info('stopping server')
             self.cluster.set_deployment_scale(0)
-        pprint(self.minutes_count)
+            self.minutes_count = 0
 
 
 tl = Timeloop()

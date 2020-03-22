@@ -29,8 +29,13 @@ class Cluster:
             namespace=self.TARGET_NAMESPACE,
         )
 
-    def set_deployment_scale(self, replicas):
+    def get_deployment_status(self):
+        return self.api.read_namespaced_deployment_status(
+            name=self.TARGET_DEPLOYMENT_NAME,
+            namespace=self.TARGET_NAMESPACE,
+        )
 
+    def set_deployment_scale(self, replicas):
         scale = self.get_deployment_scale()
         scale.spec.replicas = replicas
 
