@@ -1,55 +1,60 @@
-from os import environ
-
+from datetime import timedelta
 from pprint import pprint
-from kubernetes import client, config
 
-KUBERNETES_SERVICE_HOST = "KUBERNETES_SERVICE_HOST"
-KUBERNETES_SERVICE_PORT = "KUBERNETES_SERVICE_PORT"
+from environs import Env
+from mcstatus import MinecraftServer
+from timeloop import Timeloop
 
-def main():
-    if (KUBERNETES_SERVICE_HOST in environ and
-            KUBERNETES_SERVICE_PORT in environ):
-        config.load_incluster_config()
-    else:
-        config.load_kube_config()
+from cluster import Cluster
 
-    v1 = client.CoreV1Api()
-    print("Listing pods with their IPs:")
-    ret = v1.list_pod_for_all_namespaces(watch=False)
-    for i in ret.items:
-        print("%s\t%s\t%s" %
-              (i.status.pod_ip, i.metadata.namespace, i.metadata.name))
 
-    api_instance = client.AppsV1Api()
+class Main:
+    def __init__(self):
+        self.env = Env()
+        self.env.read_env()
 
-    # Uncomment the following lines to enable debug logging
-    # c = client.Configuration()
-    # c.debug = True
-    # api_instance = client.AppsV1Api(api_client=client.ApiClient(configuration=c))
+        self.MINUTES_WITH_NO_PLAYERS = self.env.int('MINUTES_WITH_NO_PLAYERS')
+        self.MINECRAFT_SERVER_HOST = self.env('MINECRAFT_SERVER_HOST')
+        self.MINECRAFT_SERVER_PORT = self.env('MINECRAFT_SERVER_PORT')
 
-    name = 'mc-minecraft' # str | name of the Scale
-    namespace = 'default' # str | object name and auth scope, such as for teams and projects
-    pretty = True # str | If 'true', then the output is pretty printed. (optional)
-    field_manager = 'field_manager_example' # str | fieldManager is a name associated with the actor or entity that is making these changes. The value must be less than or 128 characters long, and only contain printable characters, as defined by https://golang.org/pkg/unicode/#IsPrint. This field is required for apply requests (application/apply-patch) but optional for non-apply patch types (JsonPatch, MergePatch, StrategicMergePatch). (optional)
+        self.minutes_count = 0
 
-    scale = api_instance.read_namespaced_deployment_scale(
-        name=name,
-        namespace=namespace,
-        pretty=pretty
-    )
-    pprint(scale)
+        self.cluster = Cluster()
 
-    scale.spec.replicas = 0
+    def get_server(self):
+        return MinecraftServer.lookup("{}:{}".format(
+            self.MINECRAFT_SERVER_HOST, self.MINECRAFT_SERVER_PORT))
 
-    api_response = api_instance.patch_namespaced_deployment_scale(
-        name,
-        namespace,
-        body=scale,
-        pretty=pretty,
-        # dry_run=dry_run,
-        field_manager=field_manager,
-    )
-    pprint(api_response)
+    def get_players_online(self):
+        return self.get_server().status().players.online
+
+    def run(self):
+        if not self.cluster.get_deployment_scale().spec.replicas:
+            # server has no replicas, nothing to do
+            return
+
+        players = self.get_server().status().players.online
+
+        if players:
+            self.minutes_count = 0
+            return
+
+        self.minutes_count += 1
+
+        if (self.minutes_count >= self.MINUTES_WITH_NO_PLAYERS):
+            print('stopping server')
+            self.cluster.set_deployment_scale(0)
+        pprint(self.minutes_count)
+
+
+tl = Timeloop()
+main = Main()
+
+
+@tl.job(interval=timedelta(seconds=1))
+def job():
+    main.run()
+
 
 if __name__ == '__main__':
-    main()
+    tl.start(block=True)
