@@ -1,0 +1,14 @@
+version: "3.7"
+services:
+  minecraft-kubernetes-watchdog:
+    container_name: mcwatchdog
+    image: joecabezas/minecraft-k8s-watchdog:latest
+    environment:
+      LOG_LEVEL: INFO
+      TARGET_DEPLOYMENT_NAME: mc-minecraft
+      EMPTY_SERVER_CHECK_PERIOD: 1
+      EMPTY_SERVER_CHECK_CYCLES: 5
+      MINECRAFT_SERVER_HOST: kubernetes.docker.internal
+      MINECRAFT_SERVER_PORT: 32137
+    volumes:
+      - "~/.kube:/root/.kube"

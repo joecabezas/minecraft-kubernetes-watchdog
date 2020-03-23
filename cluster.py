@@ -1,38 +1,44 @@
+import logging
 from os import environ
 
-from dotenv import load_dotenv
+from environs import Env
 from kubernetes import client
 from kubernetes import config
-load_dotenv(verbose=True)
+
+env = Env()
+env.read_env()
+
+KUBERNETES_SERVICE_HOST = env('KUBERNETES_SERVICE_HOST', None)
+KUBERNETES_SERVICE_PORT = env('KUBERNETES_SERVICE_PORT', None)
+
+TARGET_DEPLOYMENT_NAME = env('TARGET_DEPLOYMENT_NAME')
+TARGET_NAMESPACE = env('TARGET_NAMESPACE')
 
 
 class Cluster:
-
-    KUBERNETES_SERVICE_HOST = environ.get('KUBERNETES_SERVICE_HOST')
-    KUBERNETES_SERVICE_PORT = environ.get('KUBERNETES_SERVICE_PORT')
-
-    TARGET_DEPLOYMENT_NAME = environ.get('TARGET_DEPLOYMENT_NAME')
-    TARGET_NAMESPACE = environ.get('TARGET_NAMESPACE')
-
     def __init__(self):
+        logging.info("Target deployment name: %s", TARGET_DEPLOYMENT_NAME)
+        logging.info("Target namespace: %s", TARGET_NAMESPACE)
 
-        if (self.KUBERNETES_SERVICE_HOST and self.KUBERNETES_SERVICE_PORT):
+        if (KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT):
+            logging.info("Using in-cluster config")
             config.load_incluster_config()
         else:
+            logging.info("Using kube config file")
             config.load_kube_config()
 
         self.api = client.AppsV1Api()
 
     def get_deployment_scale(self):
         return self.api.read_namespaced_deployment_scale(
-            name=self.TARGET_DEPLOYMENT_NAME,
-            namespace=self.TARGET_NAMESPACE,
+            name=TARGET_DEPLOYMENT_NAME,
+            namespace=TARGET_NAMESPACE,
         )
 
     def get_deployment_status(self):
         return self.api.read_namespaced_deployment_status(
-            name=self.TARGET_DEPLOYMENT_NAME,
-            namespace=self.TARGET_NAMESPACE,
+            name=TARGET_DEPLOYMENT_NAME,
+            namespace=TARGET_NAMESPACE,
         )
 
     def set_deployment_scale(self, replicas):
@@ -40,7 +46,7 @@ class Cluster:
         scale.spec.replicas = replicas
 
         self.api.patch_namespaced_deployment_scale(
-            self.TARGET_DEPLOYMENT_NAME,
-            self.TARGET_NAMESPACE,
+            TARGET_DEPLOYMENT_NAME,
+            TARGET_NAMESPACE,
             body=scale,
         )

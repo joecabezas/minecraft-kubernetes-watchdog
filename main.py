@@ -7,60 +7,68 @@ from timeloop import Timeloop
 
 from cluster import Cluster
 
+env = Env()
+env.read_env()
+
+LOG_LEVEL = env('LOG_LEVEL')
+
+EMPTY_SERVER_CHECK_PERIOD = env.int('EMPTY_SERVER_CHECK_PERIOD')
+EMPTY_SERVER_CHECK_CYCLES = env.int('EMPTY_SERVER_CHECK_CYCLES')
+MINECRAFT_SERVER_HOST = env('MINECRAFT_SERVER_HOST')
+MINECRAFT_SERVER_PORT = env('MINECRAFT_SERVER_PORT')
+
+logging.basicConfig(
+    format='[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
+    level=getattr(logging, LOG_LEVEL, None))
+
 
 class Main:
     def __init__(self):
-        self.env = Env()
-        self.env.read_env()
-
-        self.MINUTES_WITH_NO_PLAYERS = self.env.int('MINUTES_WITH_NO_PLAYERS')
-        self.MINECRAFT_SERVER_HOST = self.env('MINECRAFT_SERVER_HOST')
-        self.MINECRAFT_SERVER_PORT = self.env('MINECRAFT_SERVER_PORT')
-
-        logging.basicConfig(
-            format='[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
-            level=logging.INFO)
-
-        self.minutes_count = 0
-
         self.cluster = Cluster()
+        self.empty_server_check_count = 0
+        self.minecraft_server = self.get_minecraft_server()
 
-    def get_server(self):
-        return MinecraftServer.lookup("{}:{}".format(
-            self.MINECRAFT_SERVER_HOST, self.MINECRAFT_SERVER_PORT))
+    def get_minecraft_server(self):
+        return MinecraftServer.lookup("{}:{}".format(MINECRAFT_SERVER_HOST,
+                                                     MINECRAFT_SERVER_PORT))
 
     def get_players_online(self):
-        return self.get_server().status().players.online
+        try:
+            return self.minecraft_server.status().players.online
+        except Exception:
+            logging.error("Connection to minecraft server (%s:%s) failed",
+                          MINECRAFT_SERVER_HOST, MINECRAFT_SERVER_PORT)
+            raise
 
-    def run(self):
+    def check(self):
         if not self.cluster.get_deployment_status().status.ready_replicas:
             # server has no replicas ready, nothing to do
             return
 
-        players = self.get_server().status().players.online
+        players = self.get_players_online()
 
         if players:
-            self.minutes_count = 0
+            self.empty_server_check_count = 0
             return
 
-        self.minutes_count += 1
+        self.empty_server_check_count += 1
 
-        logging.info("minutes passed with no players: {}".format(
-            self.minutes_count))
+        logging.info("cycles passed with no players: {}".format(
+            self.empty_server_check_count))
 
-        if (self.minutes_count >= self.MINUTES_WITH_NO_PLAYERS):
+        if (self.empty_server_check_count >= EMPTY_SERVER_CHECK_CYCLES):
             logging.info('stopping server')
             self.cluster.set_deployment_scale(0)
-            self.minutes_count = 0
+            self.empty_server_check_count = 0
 
 
 tl = Timeloop()
 main = Main()
 
 
-@tl.job(interval=timedelta(seconds=1))
+@tl.job(interval=timedelta(seconds=EMPTY_SERVER_CHECK_PERIOD))
 def job():
-    main.run()
+    main.check()
 
 
 if __name__ == '__main__':
